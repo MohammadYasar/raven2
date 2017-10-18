@@ -1,108 +1,76 @@
-/* Raven 2 Control - Control software for the Raven II robot
- * Copyright (C) 2005-2012  H. Hawkeye King, Blake Hannaford, and the University of Washington BioRobotics Laboratory
- *
- * This file is part of Raven 2 Control.
- *
- * Raven 2 Control is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Raven 2 Control is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with Raven 2 Control.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/**
+/*
  * tools.h
  *
- * \brief Class file for tool object
- *
- *  \date Oct 17, 2014
- *  \author Andrew Lewis
- *  \author Danying Hu, David Caballero
+ *  Created on: Oct 17, 2014
+ *      Author: junjie
  */
 
 #ifndef TOOLS_H_
 #define TOOLS_H_
 
-/** Style of tool interface to robot, enumerated
- *
- */
-
 enum style{
-	dv, 			/**< Da Vinci interface value 1 */
-	raven,			/**< RAVEN interface value 2 */
-	square_raven	/**< Bionics lab square style interface value 3 */
-};
+	dv,
+	raven,
+	square_raven};
 
-/** name of end effector type
- *
- */
 enum end_effector_type  {
-	r_grasper,				/**< RAVEN style grasper value 1 */
-	r_sq_grasper,			/**< RAVEN Bionics lab square style grasper value 2 */
-	large_needle,			/**< dV large needle driver value 3 */
-	micro_forceps,			/**< dV micro forceps value 4 */
-	bipolar_forceps,		/**< dV bipolar forceps value 5 */
-	cardiere_forceps,		/**< dV cardiere forceps value 6 */
-	mopocu_scissor,			/**< dV monopolar curved scissors value 7 */
-	potts_scissor,			/**< dV potts scissor value 8 */
-	monopolar_cautery		/**< dV monopolar cuatery tool value 9 */
-};
+	r_grasper,
+	r_grasper_A,
+	r_grasper_B,
+	r_sq_grasper,
+	large_needle,
+	micro_forceps,
+	bipolar_forceps,
+	cardiere_forceps,
+	mopocu_scissor,
+	potts_scissor,
+	monopolar_cautery};
 
-/** a tool that can be used on either RAVEN arm
- *
- */
 
 class tool{
 public:
 
-	end_effector_type t_end; /**< enumerated end effector name */
+	end_effector_type t_end;
 
-	style t_style; /**< enumerated robot interface style */
+	style t_style; //the style is set based on end_effector
 
-	int mech_type; /**< arm type that the tool is mounted to */
+	int mech_type;
 
-	float wrist_coupling; /**< coupling coefficient between wrist and graspers */
+	float wrist_coupling;
 
 	//angle is the maximum physical range of DOF
 	//limit is the safe limit for joint saturation
-	float rot_max_angle; 		/**< Physical maximum angle from the midpoint of tool roll */
-	float rot_min_angle; 		/**< Physical minimum angle from the midpoint of tool roll  */
-	float rot_max_limit; 		/**< Positive safety limit angle from midpoint of tool roll  */
-	float rot_min_limit; 		/**< Negative safety limit angle from midpoint of tool roll  */
+	float rot_max_angle;
+	float rot_min_angle;
+	float rot_max_limit;
+	float rot_min_limit;
 
-	float wrist_max_angle; 		/**< Physical maximum angle from the midpoint of wrist motion*/
-	float wrist_min_angle; 		/**< Physical minimum angle from the midpoint of wrist motion*/
-	float wrist_max_limit; 		/**< Positive safety limit angle from midpoint of wrist motion */
-	float wrist_min_limit; 		/**< Negative safety limit angle from midpoint of wrist motion */
+	float wrist_max_angle;
+	float wrist_min_angle;
+	float wrist_max_limit;
+	float wrist_min_limit;
 
-	float grasp1_max_angle; 	/**< Physical maximum angle from the midpoint of first jaw motion*/
-	float grasp1_min_angle; 	/**< Physical minimum angle from the midpoint of first jaw motion*/
-	float grasp1_max_limit; 	/**< Positive safety limit angle from midpoint of first jaw motion */
-	float grasp1_min_limit; 	/**< Negative safety limit angle from midpoint of first jaw motion */
+	float grasp1_max_angle;
+	float grasp1_min_angle;
+	float grasp1_max_limit;
+	float grasp1_min_limit;
 
-	float grasp2_max_angle; 	/**< Physical maximum angle from the midpoint of second jaw motion*/
-	float grasp2_min_angle; 	/**< Physical minimum angle from the midpoint of second jaw motion*/
-	float grasp2_max_limit; 	/**< Positive safety limit angle from midpoint of second jaw motion */
-	float grasp2_min_limit; 	/**< Negative safety limit angle from midpoint of seond jaw motion */
+	float grasp2_max_angle;
+	float grasp2_min_angle;
+	float grasp2_max_limit;
+	float grasp2_min_limit;
 
-	float max_opening_angle; 	/**< Safety limit angle of distance between jaws*/
+	float max_opening_angle; //max angle between graspers
 
 	//angles to return to after homing
-	float rot_home_angle;    	/**< tool rotation angle to return to after homing */
-	float wrist_home_angle;  	/**< wrist angle to return to after homing */
-	float grasp1_home_angle; 	/**< grasper one angle to return to after homing */
-	float grasp2_home_angle; 	/**< grasper two angle to return to after homing */
+	float rot_home_angle;
+	float wrist_home_angle;
+	float grasp1_home_angle;
+	float grasp2_home_angle;
 
-	//DH (DanyingHu) parameters
-	float shaft_length;  		/**< DH length parameter from middle of tool interface to base of wrist */
-	float wrist_length;  		/**< DH length parameter from shaft/wrist base to midpoint of gasper length */
+	//DanyingHu parameters
+	float shaft_length;
+	float wrist_length;
 
 //methods
 
@@ -111,7 +79,7 @@ public:
 
 	~tool(){};
 
-
+//	void set_tool(end_effector_type, int);
 	void set_tool(end_effector_type, int);
 
 	void set_tool_data();

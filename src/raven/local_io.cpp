@@ -52,7 +52,7 @@ ROS publishing is at the bottom half of this file.
 #include "itp_teleoperation.h"
 #include "r2_kinematics.h"
 #include "reconfigure.h"
-#include "r2_jacobian.h"
+#include "defines.h"
 
 extern int NUM_MECH;
 extern USBStruct USBBoards;
@@ -71,7 +71,14 @@ volatile int isUpdated; //TODO: HK volatile int instead of atomic_t ///Should we
 extern struct offsets offsets_l;
 extern struct offsets offsets_r;
 
-
+#ifdef save_logs
+extern char err_str[1024];
+#endif
+#ifdef detector
+extern double sim_mpos[3];
+extern double sim_mvel[3];
+extern double sim_jpos[3];
+#endif
 /**
  * \brief Initialize data arrays to zero and create mutex
  *
@@ -87,6 +94,7 @@ int initLocalioData(void)
     pthread_mutex_init(&data1Mutex,&data1MutexAttr);
 
     pthread_mutex_lock(&data1Mutex);
+
     for (i=0;i<NUM_MECH;i++)
     {
         data1.xd[i].x = 0;
@@ -97,9 +105,19 @@ int initLocalioData(void)
         data1.rd[i].roll = 0;
         data1.rd[i].grasp = 0;
         Q_ori[i] = Q_ori[i].getIdentity();
+#ifdef simulator
+        for (int j=0;j<16;j++)
+		{
+			data1.jpos_d[j] = 0;
+			data1.jvel_d[j] = 0;
+			data1.mpos_d[j] = 0;
+			data1.mvel_d[j] = 0;
+		}
+#endif
     }
     data1.surgeon_mode=0;
     data1.last_sequence = 111;
+
     pthread_mutex_unlock(&data1Mutex);
     return 0;
 }
@@ -117,6 +135,9 @@ int initLocalioData(void)
 
 int receiveUserspace(void *u,int size)
 {
+#ifdef packetgen
+    //log_msg("I got a new packet of size %d, but size = %d", sizeof(struct u_struct), size);
+#endif
     if (size==sizeof(struct u_struct))
     {
         isUpdated = TRUE;
@@ -145,16 +166,21 @@ void teleopIntoDS1(struct u_struct *us_t)
     tf::Quaternion q_temp;
     tf::Matrix3x3 rot_mx_temp;
 
-
     // TODO:: APPLY TRANSFORM TO INCOMING DATA
-
 
 
     for (i=0;i<NUM_MECH;i++)
     {
+#ifndef simulator
         armserial = USBBoards.boards[i]==GREEN_ARM_SERIAL ? GREEN_ARM_SERIAL : GOLD_ARM_SERIAL;
         armidx    = USBBoards.boards[i]==GREEN_ARM_SERIAL ? 1 : 0;
+		//log_msg("i = %d, armidx = %d\n",i, armidx);
+#else
+        armserial = (i == 1) ? GREEN_ARM_SERIAL:GOLD_ARM_SERIAL;
+        armidx = (i == 1) ? 1 : 0;
+#endif
 
+#ifndef packetgen
         // apply mapping to teleop data
         p.x = us_t->delx[armidx];
         p.y = us_t->dely[armidx];
@@ -180,28 +206,66 @@ void teleopIntoDS1(struct u_struct *us_t)
         for (int j=0;j<3;j++)
             for (int k=0;k<3;k++)
                 data1.rd[i].R[j][k] = rot_mx_temp[j][k];
+        //log_msg("Arm %d : User desired end-effector positions: (%d,%d,%d)",i, data1.xd[i].x, data1.xd[i].y, data1.xd[i].z);
 
-#ifdef OMNI_GAIN
-	const int grasp_gain = OMNI_GAIN;
+    const int graspmax = (M_PI/2 * 1000);
+    const int graspmin = (-30.0 * 1000.0 DEG2RAD);
+	data1.rd[i].grasp -= 2*us_t->grasp[armidx];
+	if (data1.rd[i].grasp>graspmax) data1.rd[i].grasp=graspmax;
+	else if(data1.rd[i].grasp<graspmin) data1.rd[i].grasp=graspmin;
 #else
-	const int grasp_gain = 1;
+	// Set Position command
+  data1.xd[i].x = us_t->delx[armidx];
+	data1.xd[i].y = us_t->dely[armidx];
+	data1.xd[i].z = us_t->delz[armidx];
+
+	// commented debug output
+    //log_msg("Arm %d : User desired end-effector positions: (%d,%d,%d)",armidx, data1.xd[i].x, data1.xd[i].y, data1.xd[i].z);
+
+    // Set rotation command
+	//log_msg("Arm %d: User desired Rotations:",armidx);
+	for (int j=0;j<3;j++)
+	{
+	    for (int k=0;k<3;k++)
+		{
+	        data1.rd[i].R[j][k] = (armidx == 1)? us_t->R_r[j][k]:us_t->R_l[j][k];
+			//log_msg("%f", data1.rd[i].R[j][k]);
+		}
+		//log_msg("\n");
+	}
+
+    const int graspmax = (M_PI/2 * 1000);
+    const int graspmin = (-30.0 * 1000.0 DEG2RAD);
+	data1.rd[i].grasp = us_t->grasp[armidx];
+	if (data1.rd[i].grasp>graspmax) data1.rd[i].grasp=graspmax;
+	else if(data1.rd[i].grasp<graspmin) data1.rd[i].grasp=graspmin;
+#ifdef simulator
+    // Get initial joint positions from input, assign them to the desired jpos
+	if (us_t->sequence == 1)
+    {
+        for (int j=0;j<16;j++)
+		{
+			data1.jpos_d[j] = (us_t->jpos[j])*M_PI/180;
+			data1.jvel_d[j] = (us_t->jvel[j])*M_PI/180;
+			data1.mpos_d[j] = (us_t->mpos[j])*M_PI/180;
+			data1.mvel_d[j] = (us_t->mvel[j])*M_PI/180;
+		}
+	}
 #endif
-
-#ifdef SCISSOR_RIGHT
-	if (armserial == GREEN_ARM_SERIAL) grasp_gain *= 4;
-
+#ifdef detector
+    // Get initial joint positions from input, assign them to the desired jpos
+	if (us_t->sequence == 1)
+    {
+        for (int j=0;j<16;j++)
+		{
+			data1.jpos_d[j] = (us_t->jpos[j])*M_PI/180;
+			data1.jvel_d[j] = (us_t->jvel[j])*M_PI/180;
+			data1.mpos_d[j] = (us_t->mpos[j])*M_PI/180;
+			data1.mvel_d[j] = (us_t->mvel[j])*M_PI/180;
+		}
+	}
 #endif
-
-
-        const int graspmax = (M_PI/2 * 1000);
-        int graspmin = (-10.0 * 1000.0 DEG2RAD);
-
-#ifdef SCISSOR_RIGHT
-        if (armserial == GREEN_ARM_SERIAL) graspmin = (-40.0 * 1000.0 DEG2RAD);
 #endif
-		data1.rd[i].grasp -= grasp_gain * us_t->grasp[armidx];
-		if (data1.rd[i].grasp>graspmax) data1.rd[i].grasp=graspmax;
-		else if(data1.rd[i].grasp<graspmin) data1.rd[i].grasp=graspmin;
     }
 
     /// \question HK: why is this a hack?
@@ -212,11 +276,13 @@ void teleopIntoDS1(struct u_struct *us_t)
     data1.last_sequence = us_t->sequence;
 
     // commented debug output
-    //    log_msg("updated d1.xd to: (%d,%d,%d)/(%d,%d,%d)",
-    //           data1.xd[0].x, data1.xd[0].y, data1.xd[0].z,
-    //           data1.xd[1].x, data1.xd[1].y, data1.xd[1].z);
-
+        //log_msg("User desired end-effector positions: (%f,%f,%f)/(%f,%f,%f)",
+               //data1.xd[0].x, data1.xd[0].y, data1.xd[0].z,
+               //data1.xd[1].x, data1.xd[1].y, data1.xd[1].z);
     data1.surgeon_mode = us_t->surgeon_mode;
+
+    //log_file("Data1 Surgeon Mode is %d\n",us_t->surgeon_mode);
+
     pthread_mutex_unlock(&data1Mutex);
 }
 
@@ -235,7 +301,6 @@ void teleopIntoDS1(struct u_struct *us_t)
 int checkLocalUpdates()
 {
     static unsigned long int lastUpdated;
-
     if (isUpdated || lastUpdated == 0)
     {
         lastUpdated = gTime;
@@ -245,7 +310,7 @@ int checkLocalUpdates()
         // if timeout period is expired, set surgeon_mode "DISENGAGED" if currently "ENGAGED"
         log_msg("Master connection timeout.  surgeon_mode -> up.\n");
         data1.surgeon_mode = SURGEON_DISENGAGED;
- //       data1.surgeon_mode = 1;
+ //     data1.surgeon_mode = 1;
 
         lastUpdated = gTime;
         isUpdated = TRUE;
@@ -274,6 +339,9 @@ struct param_pass * getRcvdParams(struct param_pass* d1)
     memcpy(d1, &data1, sizeof(struct param_pass));
     isUpdated = 0;
     pthread_mutex_unlock(&data1Mutex);
+#ifdef simulator
+        //log_file("RT_PROCESS) Copied recieved packet to local data structure.\n");
+#endif
     return d1;
 }
 
@@ -313,7 +381,11 @@ void updateMasterRelativeOrigin(struct device *device0)
                 data1.rd[i].R[j][k] = _ori->R[j][k];
 
         // Set the local quaternion orientation rep.
+#ifndef simulator
         armidx = USBBoards.boards[i]==GREEN_ARM_SERIAL ? 1 : 0;
+#else
+        armidx = (i == 1) ? 1 : 0;
+#endif
         tmpmx.setValue(_ori->R[0][0], _ori->R[0][1], _ori->R[0][2],
                         _ori->R[1][0], _ori->R[1][1], _ori->R[1][2],
                         _ori->R[2][0], _ori->R[2][1], _ori->R[2][2]);
@@ -325,16 +397,6 @@ void updateMasterRelativeOrigin(struct device *device0)
 
     return;
 }
-
-void setSurgeonMode(int pedalstate)
-{
-    pthread_mutex_lock(&data1Mutex);
-    data1.surgeon_mode = pedalstate;
-    pthread_mutex_unlock(&data1Mutex);
-    isUpdated = TRUE;
-    log_msg("surgeon mode: %d",data1.surgeon_mode);
-}
-
 
 ///
 /// PUBLISH ROS DATA
@@ -420,10 +482,7 @@ void autoincrCallback(raven_2::raven_automove msg)
 	}
     }
 
-
-    pthread_mutex_unlock(&data1Mutex);
-    isUpdated = TRUE;
-
+  pthread_mutex_unlock(&data1Mutex);
 }
 
 
@@ -464,6 +523,7 @@ void publish_ravenstate_ros(struct robot_device *dev,struct param_pass *currPara
     int j;
     for (int i=0; i<NUM_MECH; i++){
     	j = dev->mech[i].type == GREEN_ARM ? 1 : 0;
+        //log_msg("i = %d, mech type = %d, j = %d",i, dev->mech[i].type, j);
         msg_ravenstate.type[j]    = dev->mech[j].type;
         msg_ravenstate.pos[j*3]   = dev->mech[j].pos.x;
         msg_ravenstate.pos[j*3+1] = dev->mech[j].pos.y;
@@ -483,29 +543,19 @@ void publish_ravenstate_ros(struct robot_device *dev,struct param_pass *currPara
         }
 
 
-        for (int m=0; m<numdof; m++){
-            int jtype = dev->mech[j].joint[m].type;
-            msg_ravenstate.encVals[jtype]    = dev->mech[j].joint[m].enc_val;
-            msg_ravenstate.tau[jtype]        = dev->mech[j].joint[m].tau_d;
-            msg_ravenstate.mpos[jtype]       = dev->mech[j].joint[m].mpos RAD2DEG;
-            msg_ravenstate.jpos[jtype]       = dev->mech[j].joint[m].jpos RAD2DEG;
-            msg_ravenstate.mvel[jtype]       = dev->mech[j].joint[m].mvel RAD2DEG;
-            msg_ravenstate.jvel[jtype]       = dev->mech[j].joint[m].jvel RAD2DEG;
-            msg_ravenstate.jpos_d[jtype]     = dev->mech[j].joint[m].jpos_d RAD2DEG;
-            msg_ravenstate.mpos_d[jtype]     = dev->mech[j].joint[m].mpos_d RAD2DEG;
-            msg_ravenstate.encoffsets[jtype] = dev->mech[j].joint[m].enc_offset;
-            msg_ravenstate.dac_val[jtype]    = dev->mech[j].joint[m].current_cmd;
-        }
-
-        //grab jacobian velocities and forces
-        float vel[6];
-        float f[6];
-        j = dev->mech[i].type == GREEN_ARM ? 1 : 0;
-        dev->mech[j].r2_jac.get_vel(vel);
-        dev->mech[j].r2_jac.get_vel(f);
-        for (int k=0; k<6; k++){
-        	msg_ravenstate.jac_vel[j*6+k] = vel[k];
-        	msg_ravenstate.jac_f[j*6+k] = f[k];
+        for (int i=0; i<numdof; i++){
+            int jtype = dev->mech[j].joint[i].type;
+            msg_ravenstate.encVals[jtype]    = dev->mech[j].joint[i].enc_val;
+            msg_ravenstate.tau[jtype]        = dev->mech[j].joint[i].tau_d;
+            msg_ravenstate.mpos[jtype]       = dev->mech[j].joint[i].mpos RAD2DEG;
+            msg_ravenstate.jpos[jtype]       = dev->mech[j].joint[i].jpos RAD2DEG;
+            msg_ravenstate.mvel[jtype]       = dev->mech[j].joint[i].mvel RAD2DEG;
+            msg_ravenstate.jvel[jtype]       = dev->mech[j].joint[i].jvel RAD2DEG;
+            msg_ravenstate.jpos_d[jtype]     = dev->mech[j].joint[i].jpos_d RAD2DEG;
+            msg_ravenstate.mpos_d[jtype]     = dev->mech[j].joint[i].mpos_d RAD2DEG;
+            msg_ravenstate.encoffsets[jtype] = dev->mech[j].joint[i].enc_offset;
+	    	msg_ravenstate.current_cmd[jtype]    = dev->mech[j].joint[i].current_cmd;
+	        msg_ravenstate.mvel_d[jtype]    = dev->mech[j].joint[i].mvel_d;
         }
     }
 //    msg_ravenstate.f_secs = d.toSec();
@@ -513,6 +563,22 @@ void publish_ravenstate_ros(struct robot_device *dev,struct param_pass *currPara
     msg_ravenstate.runlevel=currParams->runlevel;
     msg_ravenstate.sublevel=currParams->sublevel;
 
+#ifdef save_logs
+	for (int i = 0; i < 1024; i++)
+		if ((err_str[i] != '\n') && (err_str[i] != '\0'))
+	    	msg_ravenstate.err_msg[i] = err_str[i];
+    err_str[0] = '\0';
+#endif
+#ifdef detector
+	for (int i = 0; i < 3; i++)
+	{
+		msg_ravenstate.sim_mpos[i] = sim_mpos[i] RAD2DEG;
+		msg_ravenstate.sim_mvel[i] = sim_mvel[i] RAD2DEG;
+    }
+    msg_ravenstate.sim_jpos[0] = (sim_jpos[0]+M_PI) RAD2DEG;
+    msg_ravenstate.sim_jpos[1] = (sim_jpos[1]+M_PI) RAD2DEG;
+	msg_ravenstate.sim_jpos[2] = sim_jpos[2]*1000;
+#endif
     // Publish the raven data to ROS
     pub_ravenstate.publish(msg_ravenstate);
 }

@@ -18,20 +18,10 @@
  */
 
  /**\file get_USB_packet.cpp
-  * 
- * 	\brief 	contains functions for initializing the robot
- * 		intializes the DOF structure AND runs initialization routine
- * 
- * 	\fn These are the 4 functions in get_USB_packet.cpp file. 
- *          Functions marked with "*" are called explicitly from other files.
- * 	       *(1) initiateUSBGet		:uses USB_init.cpp (6)
- * 	       *(2) getUSBPackets		:uses (3)
- * 		(3) getUSBPacket		:uses (4), USB_init.cpp (7)
- * 		(4) processEncoderPacket	:uses dof.cpp (1)
- * 
- * 	\author Kenneth Fodero
- * 
- * 	\date 2005
+ * \author Kenneth Fodero
+ * \date 2005
+ * \brief contains functions for initializing the robot
+ * intializes the DOF structure AND runs initialization routine
 */
 
 
@@ -41,6 +31,11 @@
 extern unsigned long int gTime;
 extern USBStruct USBBoards;
 
+#ifdef log_USB
+#include <fstream>
+extern std::ofstream ReadUSBfile;
+extern std::ofstream WriteUSBfile; 
+#endif
 /**\fn void initiateUSBGet(struct device *device0)
   \brief Initiate data request from USB Board. Must be called before read
   \struct device  
@@ -61,7 +56,11 @@ void initiateUSBGet(struct device *device0)
         {
 		  //log_msg("Error (%d) initiating USB read %d on loop %d!", err, USBBoards.boards[i], gTime);
         }
-
+      static int count = 0;
+      if (count < 5){
+    	  log_msg("USB Board started -> %i", USBBoards.boards[i]);
+    	  count++;
+      }
 
 
     }
@@ -124,6 +123,14 @@ int getUSBPacket(int id, struct mechanism *mech)
     // No data or something. Boo.
     else if ((result == 0) || (result != IN_LENGTH))
       return -EIO;
+
+#ifdef log_USB
+        for (int k = 0; k < IN_LENGTH; k++)
+        {
+            ReadUSBfile << std::hex << (unsigned)buffer[k] << " "; 
+        }
+        ReadUSBfile << "\n";
+#endif 
 
     // -- Good packet so process it --
     type = buffer[0];

@@ -16,22 +16,13 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with Raven 2 Control.  If not, see <http://www.gnu.org/licenses/>.
  */
- 
-/**	\file 	init.cpp
-*
-*	\brief 	contains functions for initializing the robot
-* 	       	intializes the DOF structure AND runs initialization routine
-*
-* 	\fn These are the 4 functions in init.cpp file. 
-*           Functions marked with "*" are called explicitly from other files.
-* 	       *(1) initRobotData	 	:uses (2)(4)
-*       	(2) intDOFs	 
-* 	       *(3) init_ravengains
-*		(4) setStartXYZ			:uses fwd_cable_coupling.cpp (1), r2_kinematics.cpp (2), local_io.cpp (6)
-*
-*  	\date 	7/29/2005
-* 
-*  	\author Hawkeye King
+
+ /**\file init.cpp
+ * \author Hawkeye King
+ * \date 7/29/2005
+ * \version
+ * \brief contains functions for initializing the robot
+ * intializes the DOF structure AND runs initialization routine
 */
 
 #include <ros/console.h>
@@ -39,6 +30,9 @@
 #include "init.h"
 #include "USB_init.h"
 #include "local_io.h"
+
+// TOOLS defines
+#include "tool.h"
 
 #ifdef DV_ADAPTER
 const e_tool_type use_tool = dv_adapter;
@@ -87,15 +81,10 @@ void initRobotData(struct device *device0, int runlevel, struct param_pass *curr
 
     //initialize gravity direction data
     if(!initialized){
-    currParams->grav_dir.x = 0;
+    currParams->grav_dir.x = -980;
     currParams->grav_dir.y = 0;
-    currParams->grav_dir.z = 980;
+    currParams->grav_dir.z = 0;
     currParams->grav_mag = 9.8;
-
-    device0->grav_dir.x = 0;
-    device0->grav_dir.y = 0;
-    device0->grav_dir.z = 980;
-    device0->grav_mag = 9.8;
     }
 
     //In ESTOP reset initialization
@@ -114,7 +103,6 @@ void initRobotData(struct device *device0, int runlevel, struct param_pass *curr
     case 0:
         {
             currParams->sublevel = 1;     // Goto sublevel 1 to allow initial jpos_d setup by inv_kin.
-            break;
         }
     case 1:     // Initialization off all joint variables
         if (initialized)     //If already initialized do nothing
@@ -184,45 +172,14 @@ void initDOFs(struct device *device0)
     DOF_types[GRASP2_GREEN].TR    = GRASP2_TR_GREEN_ARM;
 
     /// Initialize current limits
-    if(SAFETY_LEVEL == BEGINNER_MODE)
-    {
-	DOF_types[SHOULDER_GOLD].DAC_max  = BEGINNER_SHOULDER_MAX_DAC;
-	DOF_types[SHOULDER_GREEN].DAC_max = BEGINNER_SHOULDER_MAX_DAC;
-	DOF_types[ELBOW_GOLD].DAC_max     = BEGINNER_ELBOW_MAX_DAC;
-	DOF_types[ELBOW_GREEN].DAC_max    = BEGINNER_ELBOW_MAX_DAC;
-	DOF_types[Z_INS_GOLD].DAC_max     = BEGINNER_Z_INS_MAX_DAC;
-	DOF_types[Z_INS_GREEN].DAC_max    = BEGINNER_Z_INS_MAX_DAC;
-    }
-    else if(SAFETY_LEVEL == MODERATE_MODE)
-    {
-	DOF_types[SHOULDER_GOLD].DAC_max  = MODERATE_SHOULDER_MAX_DAC;
-	DOF_types[SHOULDER_GREEN].DAC_max = MODERATE_SHOULDER_MAX_DAC;
-	DOF_types[ELBOW_GOLD].DAC_max     = MODERATE_ELBOW_MAX_DAC;
-	DOF_types[ELBOW_GREEN].DAC_max    = MODERATE_ELBOW_MAX_DAC;
-	DOF_types[Z_INS_GOLD].DAC_max     = MODERATE_Z_INS_MAX_DAC;
-	DOF_types[Z_INS_GREEN].DAC_max    = MODERATE_Z_INS_MAX_DAC;	
-    }
-    else // SAFETY_LEVEL == ADVANCED_MODE
-    {
-	DOF_types[SHOULDER_GOLD].DAC_max  = ADVANCED_SHOULDER_MAX_DAC;
-	DOF_types[SHOULDER_GREEN].DAC_max = ADVANCED_SHOULDER_MAX_DAC;
-	DOF_types[ELBOW_GOLD].DAC_max     = ADVANCED_ELBOW_MAX_DAC;
-	DOF_types[ELBOW_GREEN].DAC_max    = ADVANCED_ELBOW_MAX_DAC;
-	DOF_types[Z_INS_GOLD].DAC_max     = ADVANCED_Z_INS_MAX_DAC;
-	DOF_types[Z_INS_GREEN].DAC_max    = ADVANCED_Z_INS_MAX_DAC;	
-    }
-
-    /*
-    //This is the original code
     DOF_types[SHOULDER_GOLD].DAC_max  = SHOULDER_MAX_DAC;
     DOF_types[SHOULDER_GREEN].DAC_max = SHOULDER_MAX_DAC;
     DOF_types[ELBOW_GOLD].DAC_max     = ELBOW_MAX_DAC;
     DOF_types[ELBOW_GREEN].DAC_max    = ELBOW_MAX_DAC;
-    DOF_types[Z_INS_GOLD].DAC_max     = Z_INS_MAX_DAC;
-    DOF_types[Z_INS_GREEN].DAC_max    = Z_INS_MAX_DAC;
-    */
     DOF_types[TOOL_ROT_GOLD].DAC_max  = TOOL_ROT_MAX_DAC;
     DOF_types[TOOL_ROT_GREEN].DAC_max = TOOL_ROT_MAX_DAC;
+    DOF_types[Z_INS_GOLD].DAC_max     = Z_INS_MAX_DAC;
+    DOF_types[Z_INS_GREEN].DAC_max    = Z_INS_MAX_DAC;
     DOF_types[WRIST_GOLD].DAC_max     = WRIST_MAX_DAC;
     DOF_types[WRIST_GREEN].DAC_max    = WRIST_MAX_DAC;
     DOF_types[GRASP1_GOLD].DAC_max    = GRASP1_MAX_DAC;
@@ -314,7 +271,7 @@ void initDOFs(struct device *device0)
             else if (device0->mech[i].type == GREEN_ARM)
                 torque_sign = 1;
             else
-                err_msg("Unknown mech type in init!");
+                err_msg("Unknown mech type ini init!");
 #endif
             // Set i-max and current-torque conversion constants
             if ( (j==SHOULDER) || (j==ELBOW) || (j==Z_INS) )
@@ -323,6 +280,7 @@ void initDOFs(struct device *device0)
                 _dof->DAC_per_amp = (float)(K_DAC_PER_AMP_HIGH_CURRENT);                   // DAC counts to AMPS
                 _dof->i_max = (float)(I_MAX_BIG_MOTOR);
                 _dof->i_cont = (float)(I_CONT_BIG_MOTOR);
+
             }
             else //set tool stuff
             {
@@ -331,24 +289,14 @@ void initDOFs(struct device *device0)
                 _dof->i_cont = (float)(I_CONT_SMALL_MOTOR);
 
 
-//#ifdef RAVEN_II_SQUARE
-//                _dof->tau_per_amp = torque_sign * (float)(T_PER_AMP_SMALL_MOTOR * GEAR_BOX_TR_SMALL_MOTOR); // Amps to torque \todo why is this line not used?
-//#else
-//                _dof->tau_per_amp = -1 * (float)(T_PER_AMP_SMALL_MOTOR * GEAR_BOX_TR_SMALL_MOTOR); // Amps to torque
-//#endif
+                //#ifdef RAVEN_II_SQUARE
+                //                _dof->tau_per_amp = torque_sign * (float)(T_PER_AMP_SMALL_MOTOR * GEAR_BOX_TR_SMALL_MOTOR); // Amps to torque \todo why is this line not used?
+                //#else
+                //                _dof->tau_per_amp = -1 * (float)(T_PER_AMP_SMALL_MOTOR * GEAR_BOX_TR_SMALL_MOTOR); // Amps to torque
+                //#endif
 
                 //set tau_per_amp based on tool type
-//                switch (device0->mech[i].tool_type){
-//					case dv_adapter:
-//						_dof->tau_per_amp = 1 *          (float)(T_PER_AMP_SMALL_MOTOR  * GEAR_BOX_TR_SMALL_MOTOR);  // Amps to torque
-//						break;
-//					case RII_square_type:
-//						_dof->tau_per_amp = torque_sign * (float)(T_PER_AMP_SMALL_MOTOR  * GEAR_BOX_TR_SMALL_MOTOR);  // Amps to torque \todo why is this line not used?
-//						break;
-//					default:
-//						_dof->tau_per_amp = -1 *          (float)(T_PER_AMP_SMALL_MOTOR  * GEAR_BOX_TR_SMALL_MOTOR);  // Amps to torque
-//						break;
-//                }
+
 
                 switch (device0->mech[i].mech_tool.t_style){
 					case dv:
@@ -360,14 +308,7 @@ void initDOFs(struct device *device0)
 					default:
 						_dof->tau_per_amp = -1 * (float)(T_PER_AMP_SMALL_MOTOR  * GEAR_BOX_TR_SMALL_MOTOR);  // Amps to torque
 						break;
-		}
-
-#ifdef OPPOSE_GRIP
-		if (j == GRASP1)
-		{
-			_dof->tau_per_amp *= -1; //swap the torque sign for the first grasper
-		}
-#endif
+                }
             }
 
             //Set encoder offset
@@ -407,15 +348,16 @@ void initDOFs(struct device *device0)
         int offset = (device0->mech[i].type == GREEN_ARM) ? 8 : 0;
 
 
-	    DOF_types[SHOULDER + offset].max_position  = SHOULDER_MAX_ANGLE;
-        DOF_types[SHOULDER + offset].max_limit     = SHOULDER_MAX_LIMIT;
-		DOF_types[SHOULDER + offset].min_limit     = SHOULDER_MIN_LIMIT;
-	    DOF_types[SHOULDER + offset].home_position = SHOULDER_HOME_ANGLE;
 
-		DOF_types[ELBOW    + offset].max_position  = ELBOW_MAX_ANGLE;
-        DOF_types[ELBOW    + offset].max_limit     = ELBOW_MAX_LIMIT;
-		DOF_types[ELBOW    + offset].min_limit     = ELBOW_MIN_LIMIT;
-		DOF_types[ELBOW    + offset].home_position = ELBOW_HOME_ANGLE;
+	    DOF_types[SHOULDER + offset].max_position = SHOULDER_MAX_ANGLE;
+        DOF_types[SHOULDER + offset].max_limit    = SHOULDER_MAX_LIMIT;
+		DOF_types[SHOULDER + offset].min_limit    = SHOULDER_MIN_LIMIT;
+	    DOF_types[SHOULDER + offset].home_position  = SHOULDER_HOME_ANGLE;
+
+		DOF_types[ELBOW    + offset].max_position = ELBOW_MAX_ANGLE;
+        DOF_types[ELBOW    + offset].max_limit    = ELBOW_MAX_LIMIT;
+		DOF_types[ELBOW    + offset].min_limit    = ELBOW_MIN_LIMIT;
+		DOF_types[ELBOW    + offset].home_position     = ELBOW_HOME_ANGLE;
 
 	    DOF_types[Z_INS    + offset].max_position  = Z_INS_MAX_ANGLE;
         DOF_types[Z_INS    + offset].max_limit     = Z_INS_MAX_LIMIT;
@@ -448,6 +390,7 @@ void initDOFs(struct device *device0)
 
     dofs_inited=1;
 }
+
 
 /**\fn int init_ravengains(ros::NodeHandle n, struct device *device0)
   \brief Get ravengains from ROS parameter server.
@@ -556,6 +499,7 @@ int init_ravengains(ros::NodeHandle n, struct device *device0)
             DOF_types[14].KP, DOF_types[14].KD, DOF_types[14].KI,
             DOF_types[15].KP, DOF_types[15].KD, DOF_types[15].KI);
     }
+
     return 0;
 }
 

@@ -17,29 +17,13 @@
  * along with Raven 2 Control.  If not, see <http://www.gnu.org/licenses/>.
  */
 
- /**
-*   \file USB_init.cpp
-*
-*	\brief USB initialization module
-*
-*	\fn These are the 9 functions in USB_init.cpp file. 
-*           Functions marked with "*" are called explicitly from other files.
-* 		(1) getdir		 
-*       	(2) get_board_id_from_filename	 
-* 		(3) write_zeros to board	:uses (8)
-* 	       *(4) USBInit			:uses (1)(2)(3)
-* 	       *(5) USBShutDown
-* 	       *(6) startUSBRead
-* 	       *(7) usb_read
-* 		(8) usb_write
-* 	       *(9) usb_reset_encoder
-*
-*	\author Hawkeye King
-*
-*       \date 3-Nov-2011
-*
-*	\ingroup IO
-*/
+
+/**\file USB_init.cpp
+ * \brief USB initialization module
+ * \author Ken Fodero
+ * \author Hawkeye King
+ * \ingroup IO
+ */
 
 #include <string.h>
 #include <vector>
@@ -48,7 +32,6 @@
 #include <iostream>
 #include <stdio.h>
 #include <ros/console.h>
-
 #include "USB_init.h"
 #include "parallel.h"
 
@@ -60,6 +43,12 @@
 #define BRL_RESET_BOARD     10
 #define BRL_START_READ      4
 
+#ifdef log_syscall
+#include <fstream>
+extern std::ofstream SysCallTiming;
+extern struct timespec t1, t2;
+#endif
+
 // Keep board information
 std::vector<int> boardFile;
 std::map<int,int> boardFPs;
@@ -68,7 +57,6 @@ extern USBStruct USBBoards;
 extern int NUM_MECH;
 
 using namespace std;
-
 
 /**\fn int getdir(string dir, vector<string> &files)
  * \brief List directory contents matching BOARD_FILE_STR
@@ -316,9 +304,18 @@ int usb_read(int id, void *buffer, size_t len)
  */
 int usb_write(int id, void *buffer, size_t len)
 {
+#ifndef log_syscall    
     // write to board
     int ret = write(boardFPs[id], buffer, len);
-
+#else 
+    clock_gettime(CLOCK_REALTIME,&t1);
+    // write to board
+    int ret = write(boardFPs[id], buffer, len);
+    clock_gettime(CLOCK_REALTIME,&t2);
+    //Only log Syscall time for the first board
+    if (id == GREEN_ARM_SERIAL)
+    	SysCallTiming << double((double)t2.tv_nsec/1000 - (double)t1.tv_nsec/1000) << "\n";
+#endif     
     if (ret < 0)
       ret = -errno;
     return ret;

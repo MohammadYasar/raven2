@@ -18,19 +18,10 @@
  */
 
 /**
-*	\file console_process.h
+*  File: console_process.h
 *
-*  	\brief Outputs data to the console periodically, so that we know our robot lives.
-*
-*  	\author Hawkeye King
-*
-*	\ingroup IO
+*  Outputs data to the console periodically, so that we know our robot is alives.
 */
 
-/** prototype for console_process()
- */
 void *console_process(void *);
-
-/** prototype for outputRobotState()
- */
 void outputRobotState();

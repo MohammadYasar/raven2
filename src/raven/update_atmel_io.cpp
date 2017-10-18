@@ -35,12 +35,12 @@ extern int NUM_MECH;
 extern unsigned long int gTime;
 
 /**\fn void updateAtmelOutputs(struct device *device0, int runlevel)
- * \brief updates the software output: 8 bits of each arm (identical for both arms) are reserved(5 bits are used) for this output. 
- *        This output will later be written to the USB as hardware input.
+ * \brief
+ * \struct device
  * \param device0 - pointer to device struct
  * \param runlevel - current runlevel
  * \return void
- * \ingroup Hardware
+ * \ingroup Network
  */
 void updateAtmelOutputs(struct device *device0, int runlevel)
 {
@@ -57,7 +57,7 @@ void updateAtmelOutputs(struct device *device0, int runlevel)
 
     //Update Linux State
     outputs |= (runlevel & (PIN_LS0 | PIN_LS1));
-
+      
     //Update WD Timer - if not software triggered
     if ( !soft_estopped )
     {
@@ -70,7 +70,7 @@ void updateAtmelOutputs(struct device *device0, int runlevel)
             counter = 0;
         }
     }
-
+        
     //Write Changes
     for (i = 0; i < NUM_MECH; i++)
         device0->mech[i].outputs = outputs;
@@ -79,14 +79,12 @@ void updateAtmelOutputs(struct device *device0, int runlevel)
 }
 
 /**\fn void updateAtmelInputs(struct device device0, int runlevel)
- * \brief reads the hardware output received from the USB package and retrieves the runlevel in PLC.
- *        This function is mainly for debugging purpose.
+ * \brief
+ * \struct device
  * \param device0 - device struct
  * \param runlevel - current runlevel
  * \return void
- * \ingroup Hardware
- * \ingroup Debug
- * \todo I don't think this function does anything - nothing is returned and I don't think the device is updated
+ * \ingroup Network
  */
 void updateAtmelInputs(struct device device0, int runlevel)
 {
@@ -95,11 +93,16 @@ void updateAtmelInputs(struct device device0, int runlevel)
 
     //Update PLC State
     PLCState = (device0.mech[0].inputs & (PIN_PS0 | PIN_PS1)) >> 6;
-
-    //  printk("Mech0.inputs: %#x\n",device0.mech[0].inputs);
-    //  static int j;
-    //if (j++ % 1000 == 0)
-    //  printk("PLC State is %d\n",PLCState);
-    //if (PLCState != runlevel)
-    // printk("RunLevels on Linux Box and PLC do not match!!!\n");
+#ifdef save_logs
+    //log_file("Mech0.inputs: %#x\n",device0.mech[0].inputs);
+    static int j;
+    if (PLCState != runlevel)
+    {
+        //log_file("RunLevels on Linux Box and PLC do not match!!!\n");
+        log_file("PLC State is %d\n",PLCState);
+	    log_file("Other PLC State is %d\n",(device0.mech[1].inputs & (PIN_PS0 | PIN_PS1)) >> 6);
+        log_file("Run level is %d\n",runlevel);
+        log_file("Surgeon Mode is %d\n",device0.surgeon_mode);
+    }
+#endif
 }

@@ -18,22 +18,17 @@
  */
 
 /**
-* 	\file: rt_raven.h
+* \file: rt_raven.h
+* \author Hawkeye
+* \version 10/2011
+* \brief raven control functions
+*   Runs all raven control functions.
+*   Code split out from rt_process_preempt.cpp, in order to provide more flexibility.
 *
-*	\brief Runs all raven control functions.
-*
-*   \desc Code split out from rt_process_preempt.cpp, in order to provide more flexibility.
-*
-* 	\author Hawkeye
-* 
-*	\date 10/2011
-*
-*   \ingroup Control
 */
 
 #include "DS0.h"
 #include "DS1.h"
-
 /** prototype for controlRaven()
  */
 int controlRaven(struct robot_device*, struct param_pass*);

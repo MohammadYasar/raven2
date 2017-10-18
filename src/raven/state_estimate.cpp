@@ -32,8 +32,27 @@
 
 extern struct DOF_type DOF_types[];
 extern int NUM_MECH;
+int fi = 0;
 
 void getStateLPF(struct DOF *joint);
+
+#ifdef dyn_simulator
+#include <iostream>
+#include <fstream>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string>
+#include <sstream>
+#include "cmath"
+extern int runlevel;
+extern int packet_num;
+extern int wrfd,rdfd;
+extern char sim_buf[1024];
+#endif
 
 /*
  * stateEstimate()
@@ -44,20 +63,86 @@ void stateEstimate(struct robot_device *device0)
     struct DOF *_joint;
     int i,j;
 
+#ifndef simulator
     //Loop through all joints
     for (i = 0; i < NUM_MECH; i++)
     {
         for (j = 0; j < MAX_DOF_PER_MECH; j++)
         {
             _joint = &(device0->mech[i].joint[j]);
+// For the robot get the motor positions from the encoder values
 
 //            if (_joint->type == TOOL_ROT_GOLD || _joint->type == TOOL_ROT_GOLD)
 //                encToMPos(_joint);
 //            else
                 getStateLPF(_joint, device0->mech[i].tool_type);
-
         }
     }
+#else
+// For the dynamic simulator, get the motor positions 0, 1, 2 for GOLD arm from dynamic model
+#ifdef dyn_simulator
+    for (i = 0; i < NUM_MECH; i++)
+    {
+		// Get mpos for joints 0, 1, 2 from the dynamic model
+		if((i == 0) && (runlevel == 3) && (packet_num != 111))
+		{
+			// Read estimates from FIFO
+			read(rdfd, sim_buf, sizeof(sim_buf));
+			double sim_jpos [3];
+			// Write the results to the screen
+			std::istringstream ss(sim_buf);
+			ss >> device0->mech[i].joint[SHOULDER].mpos >>
+				device0->mech[i].joint[SHOULDER].mvel >>
+				sim_jpos[0] >>
+				device0->mech[i].joint[ELBOW].mpos >>
+				device0->mech[i].joint[ELBOW].mvel >>
+				sim_jpos[1] >>
+				device0->mech[i].joint[Z_INS].mpos >>
+				device0->mech[i].joint[Z_INS].mvel >>
+				sim_jpos[2];
+            //printf("\nRecieved: %s\n",sim_buf);
+#ifndef no_logging
+			printf("Estimated (mpos,mvel):(%f, %f),(%f, %f),(%f, %f)\n",
+				device0->mech[i].joint[SHOULDER].mpos,
+				device0->mech[i].joint[SHOULDER].mvel,
+				device0->mech[i].joint[ELBOW].mpos,
+				device0->mech[i].joint[ELBOW].mvel,
+				device0->mech[i].joint[Z_INS].mpos,
+				device0->mech[i].joint[Z_INS].mvel);
+#endif
+
+			// Shortc-circuiting others - Assuming ideal hardware
+			for (j = 3; j < MAX_DOF_PER_MECH; j++)
+			{
+				device0->mech[0].joint[j].mpos = device0->mech[0].joint[j].mpos_d;
+				device0->mech[0].joint[j].mvel = device0->mech[0].joint[j].mvel_d;
+			}
+		}
+		//For the Green Arm, just short-circuit the mpos and mvel
+		else
+		{
+			// Shortc-circuiting - Assuming ideal hardware
+			for (j = 0; j < MAX_DOF_PER_MECH; j++)
+			{
+				device0->mech[1].joint[j].mpos = device0->mech[1].joint[j].mpos_d;
+				device0->mech[1].joint[j].mvel = device0->mech[1].joint[j].mvel_d;
+			}
+		}
+	}
+// For the simple simulator, get the motor positions from the desired motor positions
+#else
+    for (i = 0; i < NUM_MECH; i++)
+    {
+        for (j = 0; j < MAX_DOF_PER_MECH; j++)
+        {
+			device0->mech[i].joint[j].mpos = device0->mech[i].joint[j].mpos_d;
+			device0->mech[i].joint[j].mvel = device0->mech[i].joint[j].mvel_d;
+		}
+	}
+#endif
+
+#endif
+
 }
 
 /*
@@ -89,8 +174,6 @@ void getStateLPF(struct DOF *joint, int tool_type)
     float *oldFiltPos= DOF_types[joint->type].old_filtered_mpos;
     float filtPos = 0;
     float f_enc_val = joint->enc_val;
-
-
 
 //#ifdef RAVEN_II
 //    if ( (joint->type == SHOULDER_GOLD) ||
@@ -132,11 +215,11 @@ void getStateLPF(struct DOF *joint, int tool_type)
 		break;
 
     case dv_adapter:
-		if ( (joint->type == SHOULDER_GOLD) ||
-	    	 (joint->type == ELBOW_GOLD) ||
-	    	 (joint->type == Z_INS_GOLD)
-	     	)
-	     	f_enc_val *= -1;
+			if ( (joint->type == SHOULDER_GOLD) ||
+				(joint->type == ELBOW_GOLD) ||
+				(joint->type == Z_INS_GOLD)
+				)
+				f_enc_val *= -1;
     	break;
 
     default:
@@ -157,11 +240,6 @@ void getStateLPF(struct DOF *joint, int tool_type)
     	         f_enc_val *= -1;
     	    break;
     }
-
-#ifdef OPPOSE_GRIP
-    if ((joint->type == GRASP1_GOLD) || (joint->type == GRASP1_GREEN)) 
- 	f_enc_val *= -1;
-#endif
 
 //    static int i = 0;
 //    static int j = 0;
@@ -208,22 +286,9 @@ void getStateLPF(struct DOF *joint, int tool_type)
 
     // Compute velocity from first difference
     // This is safe b/c noise is removed by LPF
-
-//removed filter functionality - CIGIT 7/30/15
-//the filter was shown to cause fluttering in the tool joints after homing
-#ifdef NO_LPF  
-    joint->mvel = (motorPos - oldPos[0])/ STEP_PERIOD;
-    joint->mpos = motorPos;
-
-    static int print_once = 0;
-    if (print_once < 1){
-	   log_msg("!!!!!!!!!!!!!    LPF FILTER IS OFF    !!!!!!111!!1!1!!!", 0);
-       print_once++;
-    }
-#else //use the filter
     joint->mvel = (filtPos - oldFiltPos[0]) / STEP_PERIOD;
     joint->mpos = filtPos;
-#endif
+
 
     // Update old values for filter
     oldPos[2] = oldPos[1];
@@ -323,11 +388,6 @@ void getStateLPF(struct DOF *joint, style t_style)
     	    break;
     }
 
-#ifdef OPPOSE_GRIP
-    if ((joint->type == GRASP1_GOLD) || (joint->type == GRASP1_GREEN)) 
- 	f_enc_val *= -1;
-#endif
-
     static int i = 0;
     static int j = 0;
     j++;
@@ -374,7 +434,6 @@ void getStateLPF(struct DOF *joint, style t_style)
     // This is safe b/c noise is removed by LPF
     joint->mvel = (filtPos - oldFiltPos[0]) / STEP_PERIOD;
     joint->mpos = filtPos;
-
 
     // Update old values for filter
     oldPos[2] = oldPos[1];

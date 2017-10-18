@@ -37,6 +37,7 @@
 #define TELEOPERATION_H
 #define SURGEON_ENGAGED       1
 #define SURGEON_DISENGAGED    0
+#include "defines.h" 
 
 /*
 u_struct : structure passed from master to slave.
@@ -66,10 +67,27 @@ struct u_struct {
 	int delx[2];
 	int dely[2];
 	int delz[2];
-    double Qx[2];
-    double Qy[2];
-    double Qz[2];
-    double Qw[2];
+#ifdef packetgen
+    double R_l[3][3];
+    double R_r[3][3];
+#ifdef simulator
+	double jpos[16];
+	double jvel[16];
+	double mpos[16];
+	double mvel[16];
+#endif
+#ifdef detector
+	double jpos[16];
+	double jvel[16];
+	double mpos[16];
+	double mvel[16];
+#endif
+#else
+        double Qx[2];
+        double Qy[2];
+        double Qz[2];
+        double Qw[2];
+#endif
 	int buttonstate[2];
 	int grasp[2];
 	int surgeon_mode;

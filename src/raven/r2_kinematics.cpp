@@ -35,6 +35,7 @@
 
 #include "r2_kinematics.h"
 #include "log.h"
+#include "tool.h"
 #include "local_io.h"
 #include "defines.h"
 
@@ -67,6 +68,16 @@ double ds[2][6]           = {{0,    0,    V,          d4,  0,      0},
 double robot_thetas[2][6] = {{V,    V,    M_PI/2,     V,   V,      V},
                              {V,    V,    -M_PI/2,    V,   V,      V}};
 
+#ifdef simulator
+int check_collision(ik_solution * iksols, double * gangels);
+/// Parameters to check for fwd_kin
+//int a_fwd = 0;
+//int b_fwd = 6;
+/// theta1, theta2, d3, theta4, theta5, theta6 (ignore theta4 for now)
+///double thetas_fwd[6] = {35*d2r, 50*d2r, 323*0.001, 0*d2r,80*d2r, 20*d2r};
+//double rthetas_fwd[6] = {30*d2r, 90*d2r, 435*0.001, 50*d2r,-80*d2r, 30*d2r};
+//double lthetas_fwd[6] = {-150*d2r,-90*d2r, 430*0.001, 0*d2r,-90*d2r,-30*d2r};
+# endif
 
 int printIK = 0;
 void print_btVector(tf::Vector3 vv);
@@ -100,7 +111,9 @@ tf::Transform getFKTransform(int a, int b)
 	double py = -sin(dh_alpha[a])*dh_d[a];
 	double pz =  cos(dh_alpha[a])*dh_d[a];
 
-	xf.setBasis(tf::Matrix3x3(xx, xy, xz, yx, yy, yz, zx, zy, zz ));
+        ///cout << "Step" << a << " : x, y, z:" << px << "," << py << "," << pz<<endl;
+
+        xf.setBasis(tf::Matrix3x3(xx, xy, xz, yx, yy, yz, zx, zy, zz ));
 	xf.setOrigin(tf::Vector3(px, py, pz));
 
 	// recursively find transforms for following links
@@ -110,7 +123,123 @@ tf::Transform getFKTransform(int a, int b)
 	return xf;
 }
 
+int check_collision(ik_solution *iksols, double *gangels)
+{
 
+    //gangels[0] = 30*d2r;
+    //gangels[1] = 30*d2r;
+    //l_r arm;
+
+    tf::Transform xf;
+    tf::Matrix3x3 R_T0;
+    tf::Matrix3x3 L_T0;
+    tf::Matrix3x3 T6_b;
+    tf::Matrix3x3 T6;
+    tf::Matrix3x3 env_r;
+
+    // Constant Matrices for Transformation to Base Frame
+    R_T0.setValue(0, 0, -1, 0, 1, 0, 1, 0, 0);
+    L_T0.setValue(0, 0, 1, 0, -1, 0, 1, 0, 0);
+    // Needs to be tuned to be more accurate
+    tf::Vector3 R_disp(-250710,61000,-6000);
+    tf::Vector3 L_disp(-379290,61000,-6000);
+
+    double R[3][3];
+    double posx, posy, posz;
+	double radius[2];
+    double cen[2][3];
+
+    for (int m = 0; m < NUM_MECH; m++)
+	{
+		double iksol_thetas[6]= {iksols[m].th1, iksols[m].th2, iksols[m].d3, iksols[m].th4, iksols[m].th5, iksols[m].th6};
+
+       /*if (m == 0)
+	   {
+		   arm = dh_left;
+	       iksol_thetas[0] = lthetas_fwd[0];
+	       iksol_thetas[1] = lthetas_fwd[1];
+	       iksol_thetas[2] = lthetas_fwd[2];
+	       iksol_thetas[3] = lthetas_fwd[3];
+	       iksol_thetas[4] = lthetas_fwd[4];
+	       iksol_thetas[5] = lthetas_fwd[5];
+       }
+       else
+	   {
+           arm = dh_right;
+     	   iksol_thetas[0] = rthetas_fwd[0];
+	       iksol_thetas[1] = rthetas_fwd[1];
+	       iksol_thetas[2] = rthetas_fwd[2];
+	       iksol_thetas[3] = rthetas_fwd[3];
+	       iksol_thetas[4] = rthetas_fwd[4];
+	       iksol_thetas[5] = rthetas_fwd[5];
+		}
+        iksols[m].arm = arm;*/
+
+		fwd_kin(iksol_thetas, iksols[m].arm, xf);
+		posx = xf.getOrigin()[0] * (1000.0*1000.0);
+		posy = xf.getOrigin()[1] * (1000.0*1000.0);
+		posz = xf.getOrigin()[2] * (1000.0*1000.0);
+                //cout << "Arm " << m << ":\n";
+		//cout << "Position = ("<< posx << "," << posy << ","<< posz << ")\n";
+
+        for (int i=0;i<3;i++)
+		{
+			for (int j=0; j<3; j++)
+			{
+				R[i][j] = (xf.getBasis())[i][j];
+                //cout << R[i][j] << ",";
+			}
+			//cout << "\n";
+		}
+		T6_b.setValue(R[0][0], R[0][1], R[0][2], R[1][0], R[1][1], R[1][2], R[2][0], R[2][1], R[2][2]);
+
+		radius[m] = 10.5/cos(gangels[m])*1000;
+	    //cout << "Radius = " << radius[m] << "\n";
+
+		tf::Vector3 tmp;
+		if (iksols[m].arm == dh_left)
+		{
+			T6 = L_T0 * T6_b;
+            tmp = L_T0*tf::Vector3(posx,posy,posz)+L_disp;
+		}
+		else
+		{
+			T6 = R_T0 * T6_b;
+            tmp = R_T0*tf::Vector3(posx,posy,posz)+R_disp;
+		}
+		posx = tmp[0];
+		posy = tmp[1];
+		posz = tmp[2];
+
+		//cout << "TPosition = ("<< posx << "," << posy << ","<< posz << ")\n";
+		for (int i=0;i<3;i++)
+		{
+			for (int j=0; j<3; j++)
+			{
+                //cout << T6[i][j] << ",";
+			}
+			//cout << "\n";
+		}
+
+
+	    tf::Vector3 env = T6.getColumn(0) * radius[m];
+		cen[m][0] = posx+env[0];
+        cen[m][1] = posy+env[1];
+        cen[m][2] = posz+env[2];
+        //cout << "env: "<< env[0] << "," << env[1] << "," << env[2]<<"\n";
+        //cout << "center: "<< cen[m][0] << "," << cen[m][1] << "," <<cen[m][2]<<"\n";
+	}
+
+	double dis1 = radius[0]+radius[1];
+    double sum_dev = pow((cen[0][0]-cen[1][0]),2)+pow((cen[0][1]-cen[1][1]),2)+pow((cen[0][2]-cen[1][2]),2);
+    double dis2 = sqrt(sum_dev);
+
+    //cout << dis2 << "---" << dis1 << "\n";
+    if (dis2 < dis1)
+		return -1;
+	else
+		return 0;
+}
 
 //--------------------------------------------------------------------------------
 //  Forward kinematics
@@ -151,9 +280,17 @@ int r2_fwd_kin(struct device *d0, int runlevel)
 
 		// convert from joint angle representation to DH theta convention
 		double lo_thetas[6];
+//cout<<joints[0]*r2d<<endl;
 		joint2theta(lo_thetas, joints, arm);
 
+#ifdef simulator
+// These values should match what is sent by the packet generator
+//log_file("Arm %d - Current JPos = %f, %f, %f, %f, %f, %f, %f\n", m, d0->mech[m].joint[SHOULDER].jpos*r2d, d0->mech[m].joint[ELBOW].jpos*r2d, d0->mech[m].joint[Z_INS].jpos*r2d, d0->mech[m].joint[TOOL_ROT].jpos*r2d, d0->mech[m].joint[WRIST].jpos*r2d, d0->mech[m].joint[GRASP1].jpos*r2d, d0->mech[m].joint[GRASP2].jpos*r2d);
+
+//log_file("Arm %d - Current Thetas = %f, %f, %f, %f, %f, %f\n", m, lo_thetas[0] * r2d, lo_thetas[1] * r2d, lo_thetas[2], lo_thetas[3] * r2d, lo_thetas[4] * r2d,lo_thetas[5] * r2d);
+#endif
 		/// execute FK
+//cout<<lo_thetas[0]*r2d<<endl;
 		fwd_kin(lo_thetas, arm, xf);
 
 		d0->mech[m].pos.x = xf.getOrigin()[0] * (1000.0*1000.0);
@@ -164,8 +301,18 @@ int r2_fwd_kin(struct device *d0, int runlevel)
 			for (int j=0; j<3; j++)
 				d0->mech[m].ori.R[i][j] = (xf.getBasis())[i][j];
 
+#ifdef save_logs
+        log_file("FK_Pos_Arm%d: %d, %d, %d", m, d0->mech[m].pos.x, d0->mech[m].pos.y, d0->mech[m].pos.z);
+        log_file("FK_Ori_Arm%d: %f, %f, %f, %f, %f, %f, %f, %f, %f\n", m, d0->mech[m].ori.R[0][0], d0->mech[m].ori.R[0][1], d0->mech[m].ori.R[0][2], d0->mech[m].ori.R[1][0], d0->mech[m].ori.R[1][1], d0->mech[m].ori.R[1][2], d0->mech[m].ori.R[2][0], d0->mech[m].ori.R[2][1], d0->mech[m].ori.R[2][2]);
+
+#endif
+
+
 	}
 
+#ifdef simulator
+        //log_file("RT_PROCESS) FWD Kinematics Done.\n");
+#endif
     if ((runlevel != RL_PEDAL_DN) && (runlevel != RL_INIT)) {
         // set cartesian pos_d = pos.
         // That way, if anything wonky happens during state transitions
@@ -185,7 +332,11 @@ int r2_fwd_kin(struct device *d0, int runlevel)
             	  d0->mech[m].ori_d.R[k][j] = d0->mech[m].ori.R[k][j];
         }
         updateMasterRelativeOrigin( d0 );   // Update the origin, to which master-side deltas are added.
+
+
+
     }
+
 
 	return 0;
 }
@@ -327,31 +478,64 @@ int r2_inv_kin(struct device *d0, int runlevel)
 	tf::Transform xf;
 	struct orientation * ori_d;
 	struct position    * pos_d;
-
+    ik_solution iksols[2] = {{},{}};
+	double gangles[2]={0,0};
+#ifdef save_logs
+	for (int m=0; m<NUM_MECH; m++)
+	{
+     	//log_msg("Arm %d - Current Thetas = %f, %f, %f, %f, %f, %f\n", m, lo_thetas[0]*r2d, lo_thetas[1]*r2d, lo_thetas[2], lo_thetas[3]*r2d, lo_thetas[4]*r2d,lo_thetas[5]*r2d);
+	log_file("Input to IK: JPos - Arm %d = %f, %f, %f, %f, %f, %f, %f, %f\n", m,
+               d0->mech[m].joint[0].jpos*r2d,
+               d0->mech[m].joint[1].jpos*r2d,
+               d0->mech[m].joint[2].jpos,
+               d0->mech[m].joint[3].jpos*r2d,
+               d0->mech[m].joint[4].jpos*r2d,
+               d0->mech[m].joint[5].jpos*r2d,
+               d0->mech[m].joint[6].jpos*r2d,
+               d0->mech[m].joint[7].jpos*r2d);
+ 	}
+#endif
 	//  Do FK for each mechanism
 	for (int m=0; m<NUM_MECH; m++)
 	{
+		///log_msg("1.5. Was here  !!!!!!");
 		// get arm type and wrist actuation angle
 		if (d0->mech[m].type == GOLD_ARM)
+	        {
 			arm = dh_left;
+		}
 		else{
 
 			arm = dh_right;
 		}
 
-
 		ori_d = &(d0->mech[m].ori_d);
 		pos_d = &(d0->mech[m].pos_d);
+
+#ifdef save_logs
+	log_file("IK) Desired Pos - Arm %d = (%d, %d, %d)\n", m, pos_d->x, pos_d->y, pos_d->z);
+
+        log_file("IK) Desired Ori + Grasp = \n %f, %f, %f \n %f, %f, %f \n %f, %f, %f \n %d\n", ori_d->R[0][0], ori_d->R[0][1], ori_d->R[0][2], ori_d->R[1][0], ori_d->R[1][1], ori_d->R[1][2], ori_d->R[2][0], ori_d->R[2][1], ori_d->R[2][2], d0->mech[m].ori_d.grasp);
+
+#endif
 
 		// copy R matrix
 		for (int i = 0; i < 3; i++)
 			for (int j = 0; j < 3; j++)
 				(xf.getBasis())[i][j] = ori_d->R[i][j];
 
+//for (int i = 0; i < 3; i++)
+		//	for (int j = 0; j < 3; j++)
+//cout<<pos_d->x<<" "<<pos_d->y<<" "<<pos_d->z<< endl;
+
+
 		xf.setBasis( tf::Matrix3x3(ori_d->R[0][0], ori_d->R[0][1], ori_d->R[0][2],
 			     ori_d->R[1][0], ori_d->R[1][1], ori_d->R[1][2],
 			     ori_d->R[2][0], ori_d->R[2][1], ori_d->R[2][2]  ) );
 		xf.setOrigin( tf::Vector3(pos_d->x/(1000.0*1000.0),pos_d->y/(1000.0*1000.0), pos_d->z/(1000.0*1000.0)));
+
+
+
 /*
 		const static tf::Transform zrot_l( tf::Matrix3x3 (cos(25*d2r),-sin(25*d2r),0,  sin(25*d2r),cos(25*d2r),0,  0,0,1), tf::Vector3 (0,0,0) );
 		const static tf::Transform zrot_r( tf::Matrix3x3 (cos(-25*d2r),-sin(-25*d2r),0,  sin(-25*d2r),cos(-25*d2r),0,  0,0,1), tf::Vector3 (0,0,0) );
@@ -366,12 +550,22 @@ int r2_inv_kin(struct device *d0, int runlevel)
 			xf = zrot_r.inverse() * xf;
 		}
 */
-		//		DO IK
+		// DO IK
 		ik_solution iksol[8] = {{},{},{},{},{},{},{},{}};
+
 		int ret = inv_kin(xf, arm, iksol);
 		if (ret < 0)
-			log_msg("ik failed gracefully (arm%d ret:%d", arm, ret);
+		{
+			log_msg("ik failed gracefully (arm%d ret:%d)", arm, ret);
+#ifdef save_logs
+			log_file("Error: ik failed gracefully (arm%d ret:%d)", arm, ret);
+#endif
+		}
+#ifdef save_logs
+		for (int i =0; i < 8;i++)
+	        log_file("====== Arm %d - IK Solution %d = %f, %f, %f, %f, %f, %f\n", m, i+1 ,iksol[i].th1 * r2d, iksol[i].th2 * r2d, iksol[i].d3, iksol[i].th4 * r2d, iksol[i].th5 * r2d, iksol[i].th6 * r2d);
 
+#endif
 		// Check solutions - compare IK solutions to current joint angles...
 		double wrist2 = (d0->mech[m].joint[GRASP2].jpos - d0->mech[m].joint[GRASP1].jpos) / 2.0; // grep "
 		double joints[6] = {
@@ -386,16 +580,24 @@ int r2_inv_kin(struct device *d0, int runlevel)
 		// convert from joint angle representation to DH theta convention
 		double lo_thetas[6];
 
+		static int arm_check = 0;
 
 		joint2theta(lo_thetas, joints, arm);  //this is the one that's wrong
+
 		int sol_idx=0;
 		double sol_err;
 		int check_result = 0;
+
 		if ( (check_result = check_solutions(lo_thetas, iksol, sol_idx, sol_err)) < 0)
 		{
-//			cout << "IK failed\n";
+			if(gTime%100 == 0)
+				cout << "IK failed\n";
+#ifdef save_logs
+			log_file("Error: IK failed (arm %d)\n",arm);
+#endif
 			return -1;
 		}
+
 
 		double Js[6];
 		double Js_sat[6];
@@ -403,10 +605,43 @@ int r2_inv_kin(struct device *d0, int runlevel)
 		tf::Transform xf_sat;
 		double gangle = double(d0->mech[m].ori_d.grasp) / 1000.0;
 		theta2joint(iksol[sol_idx], Js);
+/*		if(gTime%10 == 0)
+		{
+			cout<<" i am here============================================="<<endl;
+			cout<<Js[0]*r2d<<" "<<Js[1]*r2d<<" "<<Js[2]<<" "<<Js[3]*r2d<<" "<<Js[4]*r2d
+        	            << Js[5]*r2d<<" "<<Js[6]*r2d<<" "<<Js[7]<<endl;
+		}*/
+#ifdef simulator
+		if (m == 0)
+		{
+	            gangles[0] = gangle;
+                    iksols[0] = iksol[sol_idx];
+		}
+		else
+		{
+		    gangles[1] = gangle;
+                    iksols[1] = iksol[sol_idx];
+	 	}
+		/*if(gTime%1000 == 0)
+		   	log_msg("IK_Thetas_Arm%d: %f, %f, %f, %f, %f, %f, %f\n",
+                        m,iksol[sol_idx].th1*r2d,iksol[sol_idx].th2*r2d,
+                        iksol[sol_idx].d3,
+                        iksol[sol_idx].th4*r2d, iksol[sol_idx].th5*r2d,
+                        iksol[sol_idx].th6*r2d,
+                        double(d0->mech[m].ori_d.grasp));*/
+#ifdef save_logs
+			log_file("IK Solution Js - Arm%d: %f, %f, %f, %f, %f, %f\n",
+                        m,
+                        Js[0]*r2d,
+                        Js[1]*r2d,
+                        Js[2]*r2d,
+                        Js[3]*r2d,
+                        Js[4]*r2d,
+                        Js[5]*r2d);
+#endif
 
-		//check joint limits for saturating
+#endif
 		int limited = apply_joint_limits(Js,Js_sat);
-
 		if (limited)
 		{
 			joint2theta(thetas_sat, Js_sat, arm);
@@ -419,6 +654,10 @@ int r2_inv_kin(struct device *d0, int runlevel)
 					d0->mech[m].ori_d.R[i][j] = (xf_sat.getBasis())[i][j];
 
 			updateMasterRelativeOrigin(d0);
+
+#ifdef save_logs
+			log_msg("Error: Saturated to Joint Limits (arm %d)\n", arm);
+#endif
 		}
 		else
 		{
@@ -433,8 +672,19 @@ int r2_inv_kin(struct device *d0, int runlevel)
 		d0->mech[m].joint[WRIST   ].jpos_d = Js_sat[4];
 		d0->mech[m].joint[GRASP1  ].jpos_d = -Js[5] +  gangle / 2;
 		d0->mech[m].joint[GRASP2  ].jpos_d =  Js[5] +  gangle / 2;
+#ifdef save_logs
+			log_file("IK Solution Changed: Jpos - Arm%d: %f, %f, %f, %f, %f, %f, %f\n",
+                        m,
+                        d0->mech[m].joint[SHOULDER].jpos_d*r2d,
+                        d0->mech[m].joint[ELBOW   ].jpos_d*r2d,
+                        d0->mech[m].joint[Z_INS   ].jpos_d*r2d,
+                        d0->mech[m].joint[TOOL_ROT].jpos_d*r2d,
+                        d0->mech[m].joint[WRIST   ].jpos_d*r2d,
+                        d0->mech[m].joint[GRASP1  ].jpos_d*r2d,
+                        d0->mech[m].joint[GRASP2  ].jpos_d*r2d);
+#endif
 
-		if (printIK !=0 )// && d0->mech[m].type == GREEN_ARM_SERIAL )
+         	if (printIK !=0 )// && d0->mech[m].type == GREEN_ARM_SERIAL )
 		{
 			log_msg("All IK solutions for mechanism %d.  Chosen solution:%d:",m, sol_idx);
 			log_msg("Current     :\t( %3f,\t %3f,\t %3f,\t %3f,\t %3f,\t %3f (\t %3f/\t %3f))",
@@ -444,28 +694,45 @@ int r2_inv_kin(struct device *d0, int runlevel)
 					joints[3] * r2d,
 					joints[4] * r2d,
 					joints[5] * r2d,
-					d0->mech[m].joint[GRASP1].jpos  * r2d,
+					d0->mech[m].joint[GRASP2].jpos  * r2d,
 					d0->mech[m].joint[GRASP2].jpos * r2d
 			);
 			for (int i=0; i<8; i++)
 			{
 				theta2joint(iksol[i], Js);
-				log_msg("ik_joints[%d]:\t( %3f,\t %3f,\t %3f,\t %3f,\t %3f,\t %3f)",i,
+				/*log_msg("ik_joints[%d]:\t( %3f,\t %3f,\t %3f,\t %3f,\t %3f,\t %3f)",i,
 						Js[0] * r2d,
 						Js[1] * r2d,
 						Js[2],
 						Js[3] * r2d,
 						Js[4] * r2d,
 						Js[5] * r2d
-						);
+						);*/
 			}
 		}
 	}
 
 	printIK=0;
+#ifdef simulator
+    int check_result = 0;
+    static int counter = 0;
+    counter++;
+    if (counter % 100 == 0)
+    {
 
+	/*if ((check_result = check_collision(iksols,gangles)) < 0 )
+	{
+		log_msg("Collision Detected\n");
+		log_file("Error: Collision Detected\n");
+	}  */
+    }
+        //log_file("RT_PROCESS) INV Kinematics Done.\n");
+#endif
 	return 0;
 }
+
+
+
 
 /**\fn  inv_kin(tf::Transform in_T06, l_r in_arm, ik_solution iksol[8])
  * \brief Runs the Raven II INVERSE kinematics to determine end effector position.
@@ -496,7 +763,6 @@ int  __attribute__ ((optimize("0"))) inv_kin(tf::Transform in_T06, l_r in_arm, i
 	}
 
 	for (int i=0;i<8;i++)    iksol[i].arm = in_arm;
-
 
 	//  Step 1, Compute P5
 	tf::Transform  T60 = in_T06.inverse();
@@ -676,54 +942,70 @@ int apply_joint_limits(double *Js, double *Js_sat){
 	{
 		Js_sat[0] = DOF_types[SHOULDER].min_limit;
 		limited = 1;
-		std::cout<<"shoulder min limit reached  = "<<Js_sat[0]<<std::endl;
+#ifndef no_logging
+		std::cout<<"eblow min limit reached  = "<<Js_sat[0]<<std::endl;
+#endif
 	}
 	else if(Js[0] >= DOF_types[SHOULDER].max_limit)
 	{
 		Js_sat[0] = DOF_types[SHOULDER].max_limit;
 		limited = 1;
-		std::cout<<"shoulder max limit reached  = "<<Js_sat[0]<<std::endl;
+#ifndef no_logging
+		std::cout<<"eblow max limit reached  = "<<Js_sat[0]<<std::endl;
+#endif
 	}
 
-	if (Js[1] <= DOF_types[ELBOW].min_limit)
+	if (Js[1] <= ELBOW_MIN_LIMIT)
 	{
 		Js_sat[1] = ELBOW_MIN_LIMIT;
 		limited = 1;
-		std::cout<<"elbow min limit reached  = "<<Js_sat[1]<<std::endl;
+#ifndef no_logging
+		std::cout<<"eblow min limit reached  = "<<Js_sat[1]<<std::endl;
+#endif
 	}
 
-	else if(Js[1] >= DOF_types[ELBOW].max_limit)
+	else if(Js[1] >= ELBOW_MAX_LIMIT)
 	{
 		Js_sat[1] = ELBOW_MAX_LIMIT;
 		limited = 1;
-		std::cout<<"elbow max limit reached  = "<<Js_sat[1]<<std::endl;
+#ifndef no_logging
+		std::cout<<"eblow max limit reached  = "<<Js_sat[1]<<std::endl;
+#endif
 	}
 
 	if (Js[2] <= DOF_types[Z_INS].min_limit)
 	{
 		Js_sat[2] = DOF_types[Z_INS].min_limit;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"z min limit reached  = "<<Js_sat[2]<<std::endl;
+#endif
 	}
 	else if(Js[2] >= DOF_types[Z_INS].max_limit)
 	{
 		Js_sat[2] = DOF_types[Z_INS].max_limit;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"z max limit reached  = "<<Js_sat[2]<<std::endl;
+#endif
 	}
 
-	if (Js[3] <= DOF_types[TOOL_ROT].min_limit)
+	if (Js[3] <= -150.0 DEG2RAD)
 	{
-		Js_sat[3] = DOF_types[TOOL_ROT].min_limit;
+		Js_sat[3] = -150.0 DEG2RAD;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"rot min limit reached  = "<<Js_sat[3]<<std::endl;
+#endif
 	}
 
-	else if(Js[3] >= DOF_types[TOOL_ROT].max_limit)
+	else if(Js[3] >= 150.0 DEG2RAD)
 	{
-		Js_sat[3] = DOF_types[TOOL_ROT].max_limit;
+		Js_sat[3] = 150.0 DEG2RAD;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"rot max limit reached  = "<<Js_sat[3]<<std::endl;
+#endif
 	}
 
 
@@ -731,51 +1013,18 @@ int apply_joint_limits(double *Js, double *Js_sat){
 	{
 		Js_sat[4] = DOF_types[WRIST].min_limit;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"wrist min limit reached  = "<<Js_sat[4]<<std::endl;
+#endif
 	}
 	else if(Js[4] >= DOF_types[WRIST].max_limit)
 	{
 		Js_sat[4] = DOF_types[WRIST].max_limit;
 		limited = 1;
+#ifndef no_logging
 		std::cout<<"wrist max limit reached  = "<<Js_sat[4]<<std::endl;
+#endif
 	}
-	if (Js[5] <= DOF_types[GRASP1].min_limit)
-	{
-		Js_sat[5] = DOF_types[GRASP1].min_limit;
-		limited = 1;
-		std::cout<<"grasp1 min limit reached  = "<<Js_sat[5]<<std::endl;
-	}
-
-
-/*     The last element of Js is (probably) the angle of the midpoint between the graspers.
-	This isn't very useful for the joint saturation problem, so
-	we'll need to restructure this a little bit to get access to the
-	grasper joint angles -- Andy 4/16
-
-
-	else if(Js[5] >= DOF_types[GRASP1].max_limit)
-	{
-		Js_sat[5] = DOF_types[GRASP1].max_limit;
-		limited = 1;
-		std::cout<<"grasp1 max limit reached  = "<<Js_sat[5]<<std::endl;
-	}
-	if (Js[6] <= DOF_types[GRASP2].min_limit)
-	{
-		Js_sat[6] = DOF_types[GRASP2].min_limit;
-		limited = 1;
-		std::cout<<"grasp2 min limit reached  = "<<Js_sat[6]<<std::endl;
-	}
-	else if(Js[6] >= DOF_types[GRASP2].max_limit)
-	{
-		Js_sat[6] = DOF_types[GRASP2].max_limit;
-		limited = 1;
-		std::cout<<"grasp2 max limit reached  = "<<Js_sat[6]<<std::endl;
-	}
-*/
-
-
-
-	//todo add more saturation for graspers
 
 	//Js_sat[5] = Js[5];
 	/*
@@ -838,15 +1087,18 @@ int check_solutions(double *in_thetas, ik_solution * iksol, int &out_idx, double
 			minerr=s2err;
 			minidx=i;
 		}
+        //cout << "==== Min Error"<< minerr << endl;
 	}
 
+        for (int i = 0; i<10000000; i++);
 	if (minerr>eps)
 	{
 		minidx=9;
 		minerr = 0;
 		if (gTime %100 == 0 && iksol[minidx].arm == dh_left)
 		{
-			cout << "failed (err>eps) on j=\t\t(" << in_thetas[0] * r2d << ",\t" << in_thetas[1] *r2d << ",\t" << in_thetas[2] << ",\t" << in_thetas[3] * r2d << ",\t" << in_thetas[4] * r2d << ",\t" << in_thetas[5] * r2d << ")"<<endl;
+				cout << "failed (err>eps) on j=\t\t(" << in_thetas[0] * r2d << ",\t" << in_thetas[1] *r2d << ",\t" << in_thetas[2] << ",\t" << in_thetas[3] * r2d << ",\t" << in_thetas[4] * r2d << ",\t" << in_thetas[5] * r2d << ")"<<endl;
+
 			for (int idx=0;idx<8;idx++)
 			{
 				double s2err = 0;
@@ -861,7 +1113,7 @@ int check_solutions(double *in_thetas, ik_solution * iksol, int &out_idx, double
 		}
 		return -1;
 	}
-
+	//cout << "thetas" << in_thetas[4]*r2d << "-" << iksol[minidx].th5*r2d << endl;
 	out_idx=minidx;
 	out_err=minerr;
 	return rollover;
@@ -921,7 +1173,6 @@ void print_btVector(tf::Vector3 vv)
 // Theta is used by the kinematics.
 // Theta convention was easier to solve the equations, while J was already coded in software.
 //-----------------------------------------------------------------------------------------
-
 const static double TH1_J0_L  = 205;//-180;//-205;   //add this to J0 to get \theta1 (in deg)
 const static double TH2_J1_L  = 180;//-180;   //add this to J1 to get \theta2 (in deg)
 const static double D3_J2_L   = 0.0;    //add this to J2 to get d3 (in meters????)
@@ -949,6 +1200,7 @@ const static double TH6B_J6_R = 0;     //add this to J6 to get \theta6b (in deg)
  * \question why just remove this conversion, set theta the same as joint angle????
  *  \ingroup Kinematics
  */
+
 void joint2theta(double *out_iktheta, double *in_J, l_r in_arm)
 {
 	//convert J to theta
@@ -962,6 +1214,12 @@ void joint2theta(double *out_iktheta, double *in_J, l_r in_arm)
 		out_iktheta[4] = in_J[4] + TH5_J4_L * d2r;
 		out_iktheta[5] = in_J[5] + TH6A_J5_L * d2r;
 
+		static int larm_check = 0;
+		if (larm_check < 2) {
+			log_msg("why left arm? -- j2t");
+			larm_check++;
+		}
+
 	}
 
 	else
@@ -973,8 +1231,11 @@ void joint2theta(double *out_iktheta, double *in_J, l_r in_arm)
 		out_iktheta[3] = in_J[3] + TH4_J3_R * d2r;
 		out_iktheta[4] = in_J[4] + TH5_J4_R * d2r;
 		out_iktheta[5] = in_J[5] + TH6A_J5_R * d2r;
-
-
+		static int arm_check = 0;
+		if (arm_check < 2) {
+			log_msg("definitely still the right arm j2t");
+			arm_check++;
+		}
 	}
 
 	// bring to range {-pi , pi}
